@@ -1,0 +1,29 @@
+name: Publish IdentityV-Package v0.0.1
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-v0.0.1.yml
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore original CRLF line endings
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ('d3dx.ini', 'README.md', 'LICENSE'):
+              path = Path(name)
+              path.write_bytes(path.read_bytes().replace(b'\n', b'\r\n'))
+          PY
+      - name: Create v0.0.1 release with individual files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view v0.0.1 >/dev/null 2>&1; then
+            gh release create v0.0.1 --target "$GITHUB_SHA" --title "IdentityV-Package v0.0.1" --notes "首次发布《第五人格》PC 端 3Dmigoto 配置包，配合 XXMI Launcher 使用。附件单独提供 d3dx.ini、README.md 和 LICENSE，不额外附加原始 ZIP。请注意：d3dx.ini 中 [Loader] 的 target 仍需修改为实际游戏进程名。本项目不包含 3Dmigoto DLL 或 Mod 资源。"
+          fi
+          gh release upload v0.0.1 d3dx.ini README.md LICENSE --clobber
