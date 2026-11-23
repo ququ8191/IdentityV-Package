@@ -1,0 +1,61 @@
+name: Import IdentityV package from validated archive
+on:
+  push:
+    paths:
+      - '.github/workflows/import-archive.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decode and verify uploaded archive contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+          import bz2
+          import hashlib
+
+          parts = [(Path(".import") / ("chunk%02d" % i)).read_text().strip() for i in range(6)]
+          assert [len(p) for p in parts] == [4200, 4200, 4200, 4200, 4200, 3904]
+          packed = base64.b64decode("".join(parts), validate=True)
+          assert hashlib.sha256(packed).hexdigest() == "30889ab83c5dec2176ce50da4aef2080a4cce2423a49c352868b3617708037e7"
+          raw = bz2.decompress(packed)
+          readme_size = int.from_bytes(raw[:4], "big")
+          readme = raw[4:4 + readme_size]
+          ini = raw[4 + readme_size:]
+          license_text = Path("/usr/share/common-licenses/GPL-3").read_bytes()
+
+          expected = {
+              "LICENSE": (license_text, 35149, "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"),
+              "README.md": (readme, 1902, "7d3cbd296d91c697d24077d314e1ed681d2d3f36d6305d874071fcd2b3a48297"),
+              "d3dx.ini": (ini, 57138, "921d030a42e6814178fd1929abf1787eb6817205da4762a07214074bf9308ca7"),
+          }
+
+          for name, (data, expected_size, expected_sha) in expected.items():
+              actual_sha = hashlib.sha256(data).hexdigest()
+              if len(data) != expected_size or actual_sha != expected_sha:
+                  raise SystemExit(f"Verification failed for {name}: {len(data)} / {actual_sha}")
+              Path(name).write_bytes(data)
+              print(f"Verified {name}: {len(data)} bytes")
+          PY
+
+      - name: Commit project files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add LICENSE README.md d3dx.ini
+          git rm -r .import
+          git commit -m "Import IdentityV package files from supplied archive"
+          git push origin HEAD:main
